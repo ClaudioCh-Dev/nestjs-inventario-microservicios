@@ -1,81 +1,94 @@
-/*import { Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Booking } from '@/booking/entities/booking.entity';
-
-export interface IBookingRepository {
-  createBooking(booking: Booking): Promise<Booking>;
-}
-
-export class BookingRepository implements IBookingRepository {
-  constructor(
-    @InjectRepository(Booking)
-    private readonly bookingRepository: Repository<Booking>
-  ) {}
-
-  async createBooking(booking: Booking): Promise<Booking> {
-    return await this.bookingRepository.save(booking);
-  }
-}
-*/
-/*GET    /orders              → ?page&limit&status&from&to    → PaginatedResponse<OrderDto>
-GET    /orders/:id          →                               → OrderDto
-POST   /orders              → CreateOrderDto                → OrderDto (status: PENDING → RESERVING_STOCK)
-DELETE /orders/:id          → { reason? }                   → 204
-GET    /orders/:id/items    →                               → OrderItemDto[]
-
-#	Caso de Uso	Tipo	Comunicación
-
-1	Crear pedido	Command	HTTP POST → inicia Saga
-2	Confirmar pedido	Command	MESSAGE recibido (Saga Step final)
-3	Cancelar pedido	Command	HTTP DELETE o Saga compensación
-4	Agregar ítem a pedido	Command	HTTP POST
-5	Obtener pedido	Query	HTTP GET
-6	Listar pedidos	Query	HTTP GET
-7	Obtener ítems de pedido	Query	HTTP GET
-*/
-
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../service/prisma.service';
-import { Order, OrderItem } from '../generated/prisma/browser';
+import { OrderMapper } from '../mappers/order.mapper';
+import { Order } from '../../order/entities/order.entity';
+import { OrderItem } from '../../order/entities/order-item.entity';
+import { OrderStatus } from '../../order/enums/order-status.enum';
 
+// ─────────────────────────────────────────────
+// Contrato que el dominio conoce (no depende de Prisma)
+// ─────────────────────────────────────────────
 export interface IOrderRepository {
-  createOrder(order: Order): Promise<Order>;
-
-  confirmOrder(orderId: bigint): Promise<Order>;
-
-  cancelOrder(orderId: bigint, reason: string): Promise<Order>;
-
-  addOrderItem(orderId: bigint, item: OrderItem): Promise<OrderItem>;
-
-  getOrder(orderId: bigint): Promise<Order | null>;
-
-  listOrders(): Promise<Order[]>;
-
-  getOrderItems(orderId: bigint): Promise<OrderItem[]>;
+  save(order: Order): Promise<void>;
+  update(order: Order): Promise<void>;
+  findById(id: bigint): Promise<Order | null>;
+  findBySagaCommandId(sagaCommandId: string): Promise<Order | null>;
+  findAll(companyId: bigint, filters?: OrderFilters): Promise<Order[]>;
+  findItemsByOrderId(orderId: bigint): Promise<OrderItem[]>;
 }
 
+export interface OrderFilters {
+  status?: OrderStatus;
+  customerId?: bigint;
+}
+
+// ─────────────────────────────────────────────
+// Implementación con Prisma + Mapper
+// ─────────────────────────────────────────────
 @Injectable()
 export class OrderRepository implements IOrderRepository {
   constructor(private readonly prisma: PrismaService) {}
-  createOrder(order: Order): Promise<Order> {
-    throw new Error('Method not implemented.');
+
+  // Persiste una orden nueva con todos sus items
+  async save(order: Order): Promise<void> {
+    const data = OrderMapper.toCreateInput(order);
+    await this.prisma.order.create({ data });
   }
-  confirmOrder(orderId: bigint): Promise<Order> {
-    throw new Error('Method not implemented.');
+
+  // Actualiza estado, total, saga y cancelReason
+  async update(order: Order): Promise<void> {
+    const data = OrderMapper.toUpdateInput(order);
+    await this.prisma.order.update({
+      where: { id: order.getId() },
+      data,
+    });
   }
-  cancelOrder(orderId: bigint, reason: string): Promise<Order> {
-    throw new Error('Method not implemented.');
+
+  // Busca por ID e incluye los items
+  async findById(id: bigint): Promise<Order | null> {
+    const raw = await this.prisma.order.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+
+    if (!raw) return null;
+    return OrderMapper.toDomain(raw);
   }
-  addOrderItem(orderId: bigint, item: OrderItem): Promise<OrderItem> {
-    throw new Error('Method not implemented.');
+
+  // Usado por la Saga para correlacionar la respuesta de Inventory
+  async findBySagaCommandId(sagaCommandId: string): Promise<Order | null> {
+    const raw = await this.prisma.order.findFirst({
+      where: { sagaCommandId },
+      include: { items: true },
+    });
+
+    if (!raw) return null;
+    return OrderMapper.toDomain(raw);
   }
-  getOrder(orderId: bigint): Promise<Order | null> {
-    throw new Error('Method not implemented.');
+
+  // Lista órdenes de una empresa con filtros opcionales
+  async findAll(companyId: bigint, filters?: OrderFilters): Promise<Order[]> {
+    const raws = await this.prisma.order.findMany({
+      where: {
+        companyId,
+        ...(filters?.status && { status: filters.status }),
+        ...(filters?.customerId && { customerId: filters.customerId }),
+      },
+      include: { items: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return raws.map((raw) => OrderMapper.toDomain(raw));
   }
-  listOrders(): Promise<Order[]> {
-    throw new Error('Method not implemented.');
-  }
-  getOrderItems(orderId: bigint): Promise<OrderItem[]> {
-    throw new Error('Method not implemented.');
+
+  // Devuelve solo los items de una orden (para el endpoint GET /orders/:id/items)
+  async findItemsByOrderId(orderId: bigint): Promise<OrderItem[]> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+
+    if (!order) return [];
+    return OrderMapper.toDomain(order).getItems();
   }
 }

@@ -22,34 +22,12 @@ export interface CreateOrderItemProps {
 }
 
 export class OrderItem {
-  private readonly _id: bigint;
-  private readonly _orderId: bigint;
-
-  private readonly _productId: bigint;
-  private readonly _productName: string;
-  private readonly _productSku: string;
-
-  private readonly _warehouseId: bigint;
-
-  private _quantity: number;
-  private readonly _price: number;
-  private _subtotal: number;
+  private readonly props: OrderItemProps;
 
   private constructor(props: OrderItemProps) {
-    this._id = props.id;
-    this._orderId = props.orderId;
-    this._productId = props.productId;
-    this._productName = props.productName;
-    this._productSku = props.productSku;
-    this._warehouseId = props.warehouseId;
-    this._quantity = props.quantity;
-    this._price = props.price;
-    this._subtotal = props.subtotal;
+    this.props = props;
   }
 
-  // ─────────────────────────────────────────────
-  // Factory: nuevo item (calcula subtotal)
-  // ─────────────────────────────────────────────
   static create(props: CreateOrderItemProps): OrderItem {
     if (props.quantity <= 0) {
       throw new Error('Quantity must be greater than zero');
@@ -65,9 +43,6 @@ export class OrderItem {
     });
   }
 
-  // ─────────────────────────────────────────────
-  // Factory: reconstruir desde DB
-  // ─────────────────────────────────────────────
   static reconstitute(props: OrderItemProps): OrderItem {
     return new OrderItem(props);
   }
@@ -80,60 +55,45 @@ export class OrderItem {
       throw new Error('Quantity must be greater than zero');
     }
 
-    this._quantity = quantity;
-    this._subtotal = this._quantity * this._price;
+    this.props.quantity = quantity;
+    this.props.subtotal = quantity * this.props.price;
   }
 
   // ─────────────────────────────────────────────
   // Getters
   // ─────────────────────────────────────────────
-  get id(): bigint {
-    return this._id;
+  getId(): bigint {
+    return this.props.id;
   }
-  get orderId(): bigint {
-    return this._orderId;
+  getOrderId(): bigint {
+    return this.props.orderId;
   }
-  get productId(): bigint {
-    return this._productId;
+  getProductId(): bigint {
+    return this.props.productId;
   }
-  get productName(): string {
-    return this._productName;
+  getProductName(): string {
+    return this.props.productName;
   }
-  get productSku(): string {
-    return this._productSku;
+  getProductSku(): string {
+    return this.props.productSku;
   }
-  get warehouseId(): bigint {
-    return this._warehouseId;
+  getWarehouseId(): bigint {
+    return this.props.warehouseId;
   }
-  get quantity(): number {
-    return this._quantity;
+  getQuantity(): number {
+    return this.props.quantity;
   }
-  get price(): number {
-    return this._price;
+  getPrice(): number {
+    return this.props.price;
   }
-  get subtotal(): number {
-    return this._subtotal;
-  }
-
-  // Alias para compatibilidad con Order.recalculateTotal()
   getSubtotal(): number {
-    return this._subtotal;
+    return this.props.subtotal;
   }
 
   // ─────────────────────────────────────────────
   // Serialización
   // ─────────────────────────────────────────────
   toPrimitives(): OrderItemProps {
-    return {
-      id: this._id,
-      orderId: this._orderId,
-      productId: this._productId,
-      productName: this._productName,
-      productSku: this._productSku,
-      warehouseId: this._warehouseId,
-      quantity: this._quantity,
-      price: this._price,
-      subtotal: this._subtotal,
-    };
+    return { ...this.props };
   }
 }

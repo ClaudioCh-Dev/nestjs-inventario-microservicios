@@ -4,119 +4,156 @@ import { OrderItem } from './order-item.entity';
 export interface OrderProps {
   id: bigint;
   companyId: bigint;
-  customerId?: bigint | null;
-
+  customerId: bigint | null;
   status: OrderStatus;
-
   total: number;
+  sagaCommandId: string | null;
+  cancelReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  items: OrderItem[];
+}
 
-  sagaCommandId?: string | null;
-  cancelReason?: string | null;
-
-  createdAt?: Date;
-  updatedAt?: Date;
-
-  items?: OrderItem[];
+export interface CreateOrderProps {
+  id: bigint;
+  companyId: bigint;
+  customerId?: bigint | null;
+  items: OrderItem[];
 }
 
 export class Order {
-  private readonly id: bigint;
-  private readonly companyId: bigint;
-  private readonly customerId: bigint | null;
+  private readonly props: OrderProps;
 
-  private status: OrderStatus;
-  private total: number;
+  private constructor(props: OrderProps) {
+    this.props = props;
+  }
 
-  private readonly sagaCommandId: string | null;
-  private cancelReason: string | null;
+  // ─────────────────────────────────────────────
+  // Factory: nueva orden
+  // ─────────────────────────────────────────────
+  static create(props: CreateOrderProps): Order {
+    if (!props.items || props.items.length === 0) {
+      throw new Error('An order must have at least one item');
+    }
 
-  private readonly createdAt: Date;
-  private updatedAt: Date;
+    const order = new Order({
+      id: props.id,
+      companyId: props.companyId,
+      customerId: props.customerId ?? null,
+      status: OrderStatus.PENDING,
+      total: 0,
+      sagaCommandId: null,
+      cancelReason: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      items: props.items,
+    });
 
-  private items: OrderItem[];
+    order.recalculateTotal();
+    return order;
+  }
 
-  constructor(props: OrderProps) {
-    this.id = props.id;
+  // ─────────────────────────────────────────────
+  // Factory: reconstruir desde DB
+  // ─────────────────────────────────────────────
+  static reconstitute(props: OrderProps): Order {
+    return new Order(props);
+  }
 
-    this.companyId = props.companyId;
+  // ─────────────────────────────────────────────
+  // Comportamiento de dominio
+  // ─────────────────────────────────────────────
+  startReservation(sagaCommandId: string): void {
+    if (this.props.status !== OrderStatus.PENDING) {
+      throw new Error('Only PENDING orders can start stock reservation');
+    }
 
-    this.customerId = props.customerId ?? null;
-
-    this.status = props.status;
-
-    this.total = props.total;
-
-    this.sagaCommandId = props.sagaCommandId ?? null;
-
-    this.cancelReason = props.cancelReason ?? null;
-
-    this.createdAt = props.createdAt ?? new Date();
-
-    this.updatedAt = props.updatedAt ?? new Date();
-
-    this.items = props.items ?? [];
+    this.props.status = OrderStatus.RESERVING_STOCK;
+    this.props.sagaCommandId = sagaCommandId;
+    this.props.updatedAt = new Date();
   }
 
   confirm(): void {
-    if (this.status !== OrderStatus.PENDING) {
-      throw new Error('Only pending orders can be confirmed');
+    if (this.props.status !== OrderStatus.RESERVING_STOCK) {
+      throw new Error('Only orders in RESERVING_STOCK can be confirmed');
     }
 
-    this.status = OrderStatus.CONFIRMED;
-    this.updatedAt = new Date();
+    this.props.status = OrderStatus.CONFIRMED;
+    this.props.updatedAt = new Date();
   }
 
   cancel(reason: string): void {
-    if (!reason) {
+    if (this.props.status === OrderStatus.CONFIRMED) {
+      throw new Error('A confirmed order cannot be cancelled');
+    }
+
+    if (!reason?.trim()) {
       throw new Error('Cancel reason is required');
     }
 
-    this.status = OrderStatus.CANCELLED;
-    this.cancelReason = reason;
-    this.updatedAt = new Date();
+    this.props.status = OrderStatus.CANCELLED;
+    this.props.cancelReason = reason;
+    this.props.updatedAt = new Date();
   }
 
   addItem(item: OrderItem): void {
-    if (this.status !== OrderStatus.PENDING) {
-      throw new Error('Cannot add items to this order');
+    if (this.props.status !== OrderStatus.PENDING) {
+      throw new Error('Items can only be added to PENDING orders');
     }
 
-    this.items.push(item);
-
-    this.calculateTotal();
+    this.props.items.push(item);
+    this.recalculateTotal();
+    this.props.updatedAt = new Date();
   }
 
-  private calculateTotal(): void {
-    this.total = this.items.reduce((acc, item) => acc + item.getSubtotal(), 0);
+  private recalculateTotal(): void {
+    this.props.total = this.props.items.reduce(
+      (acc, item) => acc + item.getSubtotal(),
+      0,
+    );
   }
 
+  // ─────────────────────────────────────────────
+  // Getters
+  // ─────────────────────────────────────────────
   getId(): bigint {
-    return this.id;
+    return this.props.id;
   }
-
+  getCompanyId(): bigint {
+    return this.props.companyId;
+  }
+  getCustomerId(): bigint | null {
+    return this.props.customerId;
+  }
   getStatus(): OrderStatus {
-    return this.status;
+    return this.props.status;
   }
-
   getTotal(): number {
-    return this.total;
+    return this.props.total;
   }
-
+  getSagaCommandId(): string | null {
+    return this.props.sagaCommandId;
+  }
+  getCancelReason(): string | null {
+    return this.props.cancelReason;
+  }
+  getCreatedAt(): Date {
+    return this.props.createdAt;
+  }
+  getUpdatedAt(): Date {
+    return this.props.updatedAt;
+  }
   getItems(): OrderItem[] {
-    return [...this.items];
+    return [...this.props.items];
   }
 
+  // ─────────────────────────────────────────────
+  // Serialización — lo usa el Mapper
+  // ─────────────────────────────────────────────
   toPrimitives() {
     return {
-      id: this.id,
-      companyId: this.companyId,
-      customerId: this.customerId,
-      status: this.status,
-      total: this.total,
-      sagaCommandId: this.sagaCommandId,
-      cancelReason: this.cancelReason,
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt,
+      ...this.props,
+      items: this.props.items.map((item) => item.toPrimitives()),
     };
   }
 }
