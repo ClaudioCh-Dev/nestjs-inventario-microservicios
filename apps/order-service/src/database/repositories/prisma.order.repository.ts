@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../service/prisma.service';
-import { OrderMapper } from '../mappers/order.mapper';
+import { OrderMapper } from '../mappers/prisma.order.mapper';
 import { Order } from '../../order/entities/order.entity';
 import { OrderItem } from '../../order/entities/order-item.entity';
 import { OrderStatus } from '../../order/enums/order-status.enum';
+import { PrismaService } from '../service/prisma.service';
 
 // ─────────────────────────────────────────────
 // Contrato que el dominio conoce (no depende de Prisma)
@@ -26,7 +26,7 @@ export interface OrderFilters {
 // Implementación con Prisma + Mapper
 // ─────────────────────────────────────────────
 @Injectable()
-export class OrderRepository implements IOrderRepository {
+export class PrismaOrderRepository implements IOrderRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   // Persiste una orden nueva con todos sus items
