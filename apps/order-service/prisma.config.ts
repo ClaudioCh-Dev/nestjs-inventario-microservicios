@@ -1,13 +1,12 @@
 import { defineConfig } from 'prisma/config';
-import 'dotenv/config'; // Carga las variables de tu archivo .env al process.env
+import 'dotenv/config';
 
 export default defineConfig({
-  schema: 'src/database/prisma/schema.prisma',
+  schema: './prisma/schema.prisma',
   migrations: {
-    path: 'src/database/migrations',
+    path: './prisma/migrations',
   },
   datasource: {
-    // Ahora process.env.DATABASE_URL sí tendrá el valor correcto
-    url: process.env['DATABASE_URL'],
+    url: process.env['DATABASE_URL_ORDER_SERVICE']!,
   },
 });

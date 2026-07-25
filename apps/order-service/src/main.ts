@@ -49,6 +49,7 @@ async function bootstrap() {
       spec: {
         content: document,
       },
+      theme: 'deepSpace',
     }),
   );
 

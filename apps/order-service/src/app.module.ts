@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { OrderController } from './order/order.controller';
-import { CreateOrderHandler } from './order/feautures/create-order/create-order.handler';
-import { PersistenceModule } from './database/persistence.module';
+import { CreateOrderHandler } from './order/application/handlers/create-order.handler';
+import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { CqrsModule } from '@nestjs/cqrs';
+import { OrderController } from './order/presentation/order.controller';
 
 @Module({
   imports: [PersistenceModule, CqrsModule],
