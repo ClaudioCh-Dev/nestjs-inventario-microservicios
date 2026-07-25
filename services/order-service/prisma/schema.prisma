@@ -1,0 +1,122 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// ──────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────
+
+enum OrderStatus {
+  PENDING            // Recién creado
+  RESERVING_STOCK    // Esperando respuesta de Inventory (Saga)
+  CONFIRMED          // Stock reservado OK, orden confirmada
+  CANCELLED          // Cancelado por usuario o por Saga (stock insuficiente)
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+// ──────────────────────────────────────────────
+// ORDER
+// ──────────────────────────────────────────────
+
+model Order {
+  id         BigInt      @id @default(autoincrement())
+  companyId  BigInt      @map("company_id")
+  customerId BigInt?     @map("customer_id")
+  status     OrderStatus @default(PENDING)
+  total      Decimal     @db.Decimal(10, 2)
+
+  // Saga correlation: ID del comando enviado a Inventory
+  sagaCommandId String? @map("saga_command_id") @db.Uuid
+
+  cancelReason String? @map("cancel_reason")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  items OrderItem[]
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+  @@map("orders")
+}
+
+// ──────────────────────────────────────────────
+// ORDER ITEM
+// ──────────────────────────────────────────────
+
+model OrderItem {
+  id      BigInt @id @default(autoincrement())
+  orderId BigInt @map("order_id")
+
+  // Snapshot del producto al momento de la venta
+  // (no FK a otro servicio — cada servicio es independiente)
+  productId   BigInt  @map("product_id")
+  productName String  @map("product_name") @db.VarChar(150)
+  productSku  String  @map("product_sku") @db.VarChar(50)
+  warehouseId BigInt  @map("warehouse_id")
+
+  quantity Int
+  price    Decimal @db.Decimal(10, 2)
+  subtotal Decimal @db.Decimal(10, 2)
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ──────────────────────────────────────────────
+// OUTBOX EVENTS
+// Garantiza que los eventos/comandos lleguen a RabbitMQ
+// aunque el broker esté caído al momento de la transacción
+// ──────────────────────────────────────────────
+
+model OutboxEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Qué entidad originó el evento
+  aggregateType String @map("aggregate_type") @db.VarChar(100) // "Order"
+  aggregateId   BigInt @map("aggregate_id")
+
+  // Tipo de evento o comando publicado
+  // Ej: "OrderCreated", "ReserveStock", "ReleaseStock"
+  eventType String @map("event_type") @db.VarChar(100)
+
+  // Target: exchange o queue de RabbitMQ
+  // Ej: "order.events" | "inventory.commands.reserve_stock"
+  target String @db.VarChar(150)
+
+  // Routing key para el exchange (topic)
+  // Ej: "order.events.order.created" — vacío si es queue directa
+  routingKey String? @map("routing_key") @db.VarChar(150)
+
+  // Payload completo del evento/comando serializado
+  payload Json
+
+  status    OutboxStatus @default(PENDING)
+  attempts  Int          @default(0)
+  error     String?      @db.Text
+
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([status, createdAt]) // Worker filtra PENDING ORDER BY createdAt
+  @@map("outbox_events")
+}
